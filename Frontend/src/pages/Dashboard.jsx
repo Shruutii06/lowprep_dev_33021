@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { useSessionsApi } from '../hooks/useSessionsApi'
+import { useSessionsApi } from '../hooks/useSessionapi'
 import { format } from 'date-fns'
 
 const STATUS_COLORS = {

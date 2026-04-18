@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useWebSocket } from '../hooks/useWebSocket'
 import LogicMirror from '../components/LogicMirror'
 import CognitiveAnchor from '../components/CognitiveAnchor'
+import AiCoTutor from '../components/AiCoTutor'   // ← NEW
 
 const EVENT = {
   JOIN_ROOM: 'join_room',
@@ -33,8 +34,11 @@ export default function SessionRoom() {
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
-  const [activePane, setActivePane] = useState('split') // 'split' | 'mirror' | 'anchor' | 'chat'
+  const [activePane, setActivePane] = useState('split') // 'split' | 'mirror' | 'anchor' | 'chat' | 'cotutor'
   const chatBottomRef = useRef(null)
+
+  // ── NEW: accumulate transcript chunks for AI Co-Tutor ─────────────────────
+  const [transcriptChunks, setTranscriptChunks] = useState([])
 
   const handleMessage = (event) => {
     const { type, payload, sender_id } = event
@@ -73,6 +77,13 @@ export default function SessionRoom() {
         if (payload.nodes) setGraph(payload)
         break
 
+      // ── NEW: capture transcript chunks for Co-Tutor ──────────────────────
+      case EVENT.TRANSCRIPT_CHUNK:
+        if (payload.text) {
+          setTranscriptChunks(prev => [...prev, payload.text])
+        }
+        break
+
       case EVENT.ERROR:
         console.error('WS error:', payload.detail)
         break
@@ -103,6 +114,8 @@ export default function SessionRoom() {
 
   const handleTranscriptSend = (text) => {
     send(EVENT.TRANSCRIPT_CHUNK, { text })
+    // ── NEW: also accumulate locally so Co-Tutor sees it immediately ────────
+    setTranscriptChunks(prev => [...prev, text])
   }
 
   const leaveRoom = () => {
@@ -110,11 +123,15 @@ export default function SessionRoom() {
     navigate('/dashboard')
   }
 
+  // ── NEW: Co-Tutor tab only shown to tutors ─────────────────────────────────
+  const isTutor = user?.role === 'tutor'
+
   const PANES = [
-    { key: 'split', label: '⊞ Split' },
-    { key: 'mirror', label: '⌥ Mirror' },
-    { key: 'anchor', label: '◎ Anchor' },
-    { key: 'chat', label: '💬 Chat' + (chatMessages.filter(m => m.type === 'chat').length > 0 ? ` (${chatMessages.filter(m => m.type === 'chat').length})` : '') },
+    { key: 'split',   label: '⊞ Split' },
+    { key: 'mirror',  label: '⌥ Mirror' },
+    { key: 'anchor',  label: '◎ Anchor' },
+    { key: 'chat',    label: '💬 Chat' + (chatMessages.filter(m => m.type === 'chat').length > 0 ? ` (${chatMessages.filter(m => m.type === 'chat').length})` : '') },
+    ...(isTutor ? [{ key: 'cotutor', label: '🤖 Co-Tutor' }] : []),  // ← NEW
   ]
 
   return (
@@ -184,7 +201,8 @@ export default function SessionRoom() {
 
       {/* Main workspace */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-        {/* Logic Mirror pane */}
+
+        {/* ── Logic Mirror pane ── */}
         {(activePane === 'split' || activePane === 'mirror') && (
           <div style={{
             flex: activePane === 'mirror' ? 1 : '0 0 55%',
@@ -202,7 +220,7 @@ export default function SessionRoom() {
           </div>
         )}
 
-        {/* Cognitive Anchor + Chat pane */}
+        {/* ── Cognitive Anchor + Chat pane ── */}
         {(activePane === 'split' || activePane === 'anchor' || activePane === 'chat') && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
             {/* Anchor */}
@@ -263,7 +281,24 @@ export default function SessionRoom() {
             )}
           </div>
         )}
+
+        {/* ── NEW: AI Co-Tutor pane (tutor-only, full screen tab) ─────────── */}
+        {activePane === 'cotutor' && (
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            <AiCoTutor
+              transcriptChunks={transcriptChunks}
+              sharedCode={sharedCode}
+              isVisible={true}
+            />
+          </div>
+        )}
+
       </div>
     </div>
   )
 }
+// In SessionRoom.jsx, right after:
+const { user, token } = useAuth()
+
+// ADD THIS:
+console.log('DEBUG user:', user)

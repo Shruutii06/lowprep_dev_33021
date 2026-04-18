@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext'
 import { useWebSocket } from '../hooks/useWebSocket'
 import LogicMirror from '../components/LogicMirror'
 import CognitiveAnchor from '../components/CognitiveAnchor'
-import AiCoTutor from '../components/AiCoTutor'   // ← NEW
 
 const EVENT = {
   JOIN_ROOM: 'join_room',
@@ -34,14 +33,11 @@ export default function SessionRoom() {
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
-  const [activePane, setActivePane] = useState('split') // 'split' | 'mirror' | 'anchor' | 'chat' | 'cotutor'
+  const [activePane, setActivePane] = useState('split')
   const chatBottomRef = useRef(null)
 
-  // ── NEW: accumulate transcript chunks for AI Co-Tutor ─────────────────────
-  const [transcriptChunks, setTranscriptChunks] = useState([])
-
   const handleMessage = (event) => {
-    const { type, payload, sender_id } = event
+    const { type, payload } = event
 
     switch (type) {
       case EVENT.ROOM_JOINED:
@@ -49,41 +45,27 @@ export default function SessionRoom() {
         if (payload.shared_code) setSharedCode(payload.shared_code)
         if (payload.shared_language) setSharedLanguage(payload.shared_language)
         break
-
       case EVENT.USER_JOINED:
         setMembers(m => [...m.filter(u => u.id !== payload.user.id), payload.user])
         setChatMessages(m => [...m, { type: 'system', text: `${payload.user.name} joined the room`, id: Date.now() }])
         break
-
       case EVENT.USER_LEFT:
         setMembers(m => m.filter(u => u.id !== payload.user.id))
         setChatMessages(m => [...m, { type: 'system', text: `${payload.user.name} left the room`, id: Date.now() }])
         break
-
       case EVENT.CODE_UPDATED:
         setSharedCode(payload.code)
         setSharedLanguage(payload.language)
         break
-
       case EVENT.CODE_RESULT:
         setLastResult(payload)
         break
-
       case EVENT.CHAT_MESSAGE:
         setChatMessages(m => [...m, { type: 'chat', ...payload, id: Date.now(), isMine: payload.sender?.id === user?.id }])
         break
-
       case EVENT.CONCEPT_GRAPH:
         if (payload.nodes) setGraph(payload)
         break
-
-      // ── NEW: capture transcript chunks for Co-Tutor ──────────────────────
-      case EVENT.TRANSCRIPT_CHUNK:
-        if (payload.text) {
-          setTranscriptChunks(prev => [...prev, payload.text])
-        }
-        break
-
       case EVENT.ERROR:
         console.error('WS error:', payload.detail)
         break
@@ -98,51 +80,27 @@ export default function SessionRoom() {
     }
   }, [chatMessages])
 
-  const handleCodeChange = (code, language) => {
-    send(EVENT.CODE_UPDATE, { code, language })
-  }
-
-  const handleRunCode = (code, language) => {
-    send(EVENT.RUN_CODE, { code, language })
-  }
-
+  const handleCodeChange = (code, language) => send(EVENT.CODE_UPDATE, { code, language })
+  const handleRunCode = (code, language) => send(EVENT.RUN_CODE, { code, language })
   const handleSendChat = () => {
     if (!chatInput.trim() || !connected) return
     send(EVENT.CHAT_MESSAGE, { text: chatInput.trim() })
     setChatInput('')
   }
-
-  const handleTranscriptSend = (text) => {
-    send(EVENT.TRANSCRIPT_CHUNK, { text })
-    // ── NEW: also accumulate locally so Co-Tutor sees it immediately ────────
-    setTranscriptChunks(prev => [...prev, text])
-  }
-
-  const leaveRoom = () => {
-    send(EVENT.LEAVE_ROOM, {})
-    navigate('/dashboard')
-  }
-
-  // ── NEW: Co-Tutor tab only shown to tutors ─────────────────────────────────
-  const isTutor = user?.role === 'tutor'
+  const handleTranscriptSend = (text) => send(EVENT.TRANSCRIPT_CHUNK, { text })
+  const leaveRoom = () => { send(EVENT.LEAVE_ROOM, {}); navigate('/dashboard') }
 
   const PANES = [
-    { key: 'split',   label: '⊞ Split' },
-    { key: 'mirror',  label: '⌥ Mirror' },
-    { key: 'anchor',  label: '◎ Anchor' },
-    { key: 'chat',    label: '💬 Chat' + (chatMessages.filter(m => m.type === 'chat').length > 0 ? ` (${chatMessages.filter(m => m.type === 'chat').length})` : '') },
-    ...(isTutor ? [{ key: 'cotutor', label: '🤖 Co-Tutor' }] : []),  // ← NEW
+    { key: 'split',  label: '⊞ Split' },
+    { key: 'mirror', label: '⌥ Mirror' },
+    { key: 'anchor', label: '◎ Anchor' },
+    { key: 'chat',   label: '💬 Chat' + (chatMessages.filter(m => m.type === 'chat').length > 0 ? ` (${chatMessages.filter(m => m.type === 'chat').length})` : '') },
   ]
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 16px', height: '52px', flexShrink: 0,
-        borderBottom: '1px solid var(--border)', background: 'var(--bg-2)',
-      }}>
-        {/* Left */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', height: '52px', flexShrink: 0, borderBottom: '1px solid var(--border)', background: 'var(--bg-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: '24px', height: '24px', background: 'linear-gradient(135deg,var(--accent),var(--accent-2))', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>◈</div>
@@ -152,7 +110,6 @@ export default function SessionRoom() {
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
             ROOM: {roomToken?.toUpperCase().substring(0, 8)}
           </div>
-          {/* Connection status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: connected ? 'var(--green)' : reconnectCount > 0 ? 'var(--amber)' : 'var(--red)', animation: connected ? 'pulse-glow 2s infinite' : 'none' }} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: connected ? 'var(--green)' : reconnectCount > 0 ? 'var(--amber)' : 'var(--red)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -161,7 +118,6 @@ export default function SessionRoom() {
           </div>
         </div>
 
-        {/* Center - layout switcher */}
         <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-3)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border)' }}>
           {PANES.map(p => (
             <button key={p.key} onClick={() => setActivePane(p.key)} style={{
@@ -175,9 +131,7 @@ export default function SessionRoom() {
           ))}
         </div>
 
-        {/* Right */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Members */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             {members.slice(0, 4).map(m => (
               <div key={m.id} title={`${m.name} (${m.role})`} style={{
@@ -191,49 +145,26 @@ export default function SessionRoom() {
             ))}
             {members.length === 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-dim)' }}>Waiting for participants…</span>}
           </div>
-          <button onClick={leaveRoom} style={{
-            padding: '5px 14px', borderRadius: '7px', fontSize: '12px', fontWeight: 500,
-            background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,0.25)',
-            color: 'var(--red)',
-          }}>Leave</button>
+          <button onClick={leaveRoom} style={{ padding: '5px 14px', borderRadius: '7px', fontSize: '12px', fontWeight: 500, background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,0.25)', color: 'var(--red)' }}>Leave</button>
         </div>
       </div>
 
       {/* Main workspace */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-
-        {/* ── Logic Mirror pane ── */}
         {(activePane === 'split' || activePane === 'mirror') && (
-          <div style={{
-            flex: activePane === 'mirror' ? 1 : '0 0 55%',
-            borderRight: activePane === 'split' ? '1px solid var(--border)' : 'none',
-            overflow: 'hidden', display: 'flex', flexDirection: 'column',
-          }}>
-            <LogicMirror
-              sharedCode={sharedCode}
-              sharedLanguage={sharedLanguage}
-              onCodeChange={handleCodeChange}
-              onRunCode={handleRunCode}
-              lastResult={lastResult}
-              connected={connected}
-            />
+          <div style={{ flex: activePane === 'mirror' ? 1 : '0 0 55%', borderRight: activePane === 'split' ? '1px solid var(--border)' : 'none', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <LogicMirror sharedCode={sharedCode} sharedLanguage={sharedLanguage} onCodeChange={handleCodeChange} onRunCode={handleRunCode} lastResult={lastResult} connected={connected} />
           </div>
         )}
 
-        {/* ── Cognitive Anchor + Chat pane ── */}
         {(activePane === 'split' || activePane === 'anchor' || activePane === 'chat') && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-            {/* Anchor */}
             {(activePane === 'split' || activePane === 'anchor') && (
               <div style={{ flex: activePane === 'anchor' ? 1 : '1 1 60%', overflow: 'hidden', borderBottom: activePane === 'split' ? '1px solid var(--border)' : 'none' }}>
-                <CognitiveAnchor
-                  graph={graph}
-                  onTranscriptSend={handleTranscriptSend}
-                />
+                <CognitiveAnchor graph={graph} onTranscriptSend={handleTranscriptSend} />
               </div>
             )}
 
-            {/* Chat */}
             {(activePane === 'split' || activePane === 'chat') && (
               <div style={{ flex: activePane === 'chat' ? 1 : '0 0 40%', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' }}>
                 <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-2)', flexShrink: 0 }}>
@@ -250,12 +181,7 @@ export default function SessionRoom() {
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: msg.isMine ? 'flex-end' : 'flex-start' }}>
                           {!msg.isMine && <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '2px', fontFamily: 'var(--font-mono)' }}>{msg.sender?.name}</span>}
-                          <div style={{
-                            maxWidth: '80%', padding: '8px 12px', borderRadius: msg.isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-                            background: msg.isMine ? 'rgba(124,106,247,0.2)' : 'var(--bg-3)',
-                            border: `1px solid ${msg.isMine ? 'rgba(124,106,247,0.3)' : 'var(--border)'}`,
-                            fontSize: '13px', lineHeight: 1.5,
-                          }}>{msg.text}</div>
+                          <div style={{ maxWidth: '80%', padding: '8px 12px', borderRadius: msg.isMine ? '12px 12px 4px 12px' : '12px 12px 12px 4px', background: msg.isMine ? 'rgba(124,106,247,0.2)' : 'var(--bg-3)', border: `1px solid ${msg.isMine ? 'rgba(124,106,247,0.3)' : 'var(--border)'}`, fontSize: '13px', lineHeight: 1.5 }}>{msg.text}</div>
                         </div>
                       )}
                     </div>
@@ -263,42 +189,15 @@ export default function SessionRoom() {
                   <div ref={chatBottomRef} />
                 </div>
                 <div style={{ flexShrink: 0, padding: '10px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
-                  <input
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleSendChat()}
-                    placeholder="Send a message…"
-                    disabled={!connected}
-                    style={{ flex: 1, padding: '8px 12px', fontSize: '13px', background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', opacity: connected ? 1 : 0.5 }}
-                  />
-                  <button onClick={handleSendChat} disabled={!connected} style={{
-                    padding: '8px 14px', borderRadius: 'var(--radius)', fontSize: '13px',
-                    background: 'rgba(124,106,247,0.15)', border: '1px solid rgba(124,106,247,0.3)',
-                    color: 'var(--accent-2)', opacity: connected ? 1 : 0.5,
-                  }}>→</button>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendChat()} placeholder="Send a message…" disabled={!connected}
+                    style={{ flex: 1, padding: '8px 12px', fontSize: '13px', background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', opacity: connected ? 1 : 0.5 }} />
+                  <button onClick={handleSendChat} disabled={!connected} style={{ padding: '8px 14px', borderRadius: 'var(--radius)', fontSize: '13px', background: 'rgba(124,106,247,0.15)', border: '1px solid rgba(124,106,247,0.3)', color: 'var(--accent-2)', opacity: connected ? 1 : 0.5 }}>→</button>
                 </div>
               </div>
             )}
           </div>
         )}
-
-        {/* ── NEW: AI Co-Tutor pane (tutor-only, full screen tab) ─────────── */}
-        {activePane === 'cotutor' && (
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            <AiCoTutor
-              transcriptChunks={transcriptChunks}
-              sharedCode={sharedCode}
-              isVisible={true}
-            />
-          </div>
-        )}
-
       </div>
     </div>
   )
 }
-// In SessionRoom.jsx, right after:
-const { user, token } = useAuth()
-
-// ADD THIS:
-console.log('DEBUG user:', user)
